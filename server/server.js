@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const { MongoClient } = require("mongodb");
+const { MongoClient, ObjectId } = require("mongodb");
 
 const app = express();
 const PORT = process.env.PORT || 9000;
@@ -12,12 +12,16 @@ app.use(cors());
 
 const client = new MongoClient(process.env.MONGO_URI);
 let users;
+let projects;
+let memberships;
 
 async function connectDatabase() {
   await client.connect();
 
   const db = client.db("pa2");
   users = db.collection("users");
+  projects = db.collection("Projects");
+  memberships = db.collection("ProjectMemberships");
 
   await users.createIndex({ username: 1 }, { unique: true });
 
@@ -126,7 +130,100 @@ app.post("/login", async (req, res) => {
 async function startServer() {
   try {
     await connectDatabase();
+    
+    // Get registered users for project leads and memberships
+app.get("/api/users", async (req, res) => {
+  try {
+    const registeredUsers = await users
+      .find({}, { projection: { _id: 1, username: 1 } })
+      .toArray();
 
+    return res.status(200).json(registeredUsers);
+  } catch (error) {
+    console.error("Could not retrieve users:", error);
+
+    return res.status(500).json({
+      message: "Could not retrieve registered users"
+    });
+  }
+});
+// Create a project and add its lead as a member
+app.post("/api/projects", async (req, res) => {
+  try {
+    const { name, description, status, project_lead_id } = req.body;
+
+    // Check required fields
+    if (
+      typeof name !== "string" || !name.trim() ||
+      typeof description !== "string" || !description.trim() ||
+      typeof status !== "string" || !status.trim() ||
+      typeof project_lead_id !== "string" || !project_lead_id.trim()
+    ) {
+      return res.status(400).json({
+        message: "Name, description, status, and project lead are required"
+      });
+    }
+
+    // Check the allowed status values
+    const validStatuses = ["Planning", "Active", "Completed"];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        message: "Status must be Planning, Active, or Completed"
+      });
+    }
+
+    // Validate the ID before converting it
+    if (!ObjectId.isValid(project_lead_id)) {
+      return res.status(400).json({
+        message: "Invalid project lead ID"
+      });
+    }
+
+    const leadId = new ObjectId(project_lead_id);
+
+    // Verify that the selected lead exists
+    const lead = await users.findOne({ _id: leadId });
+
+    if (!lead) {
+      return res.status(404).json({
+        message: "Selected project lead does not exist"
+      });
+    }
+
+    const project = {
+      name: name.trim(),
+      description: description.trim(),
+      status: status,
+      project_lead_id: leadId
+    };
+
+    const result = await projects.insertOne(project);
+
+    // Automatically add the lead as a member
+    try {
+      await memberships.insertOne({
+        project_id: result.insertedId,
+        user_id: leadId
+      });
+    } catch (error) {
+      // Undo creation if the lead's membership could not be saved
+      await projects.deleteOne({ _id: result.insertedId });
+      throw error;
+    }
+
+    return res.status(201).json({
+      message: "Project created successfully",
+      project_id: result.insertedId
+    });
+  } catch (error) {
+    console.error("Could not create project:", error);
+
+    return res.status(500).json({
+      message: "Could not create project. Please try again"
+    });
+  }
+});
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
