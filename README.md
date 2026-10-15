@@ -1,6 +1,6 @@
-# ICSI 418Y – Programming Assignment 2: Login and Signup
+# ICSI 418Y – Programming Assignment 3: Projects and Project Memberships
 
-For this assignment I built a login and signup application using React, Express, and MongoDB. The React frontend sends requests to an Express backend, and the backend stores and checks users in a MongoDB Atlas database.
+For this assignment I built on my PA2 login and signup app. Users can now create software projects, choose a project lead from the registered users, and add or remove the people on each project. It is the same stack as PA2: a React frontend, an Express backend, and MongoDB Atlas.
 
 ```
 React (localhost:5173)  →  HTTP requests  →  Express (localhost:9000)  →  MongoDB Atlas
@@ -8,99 +8,127 @@ React (localhost:5173)  →  HTTP requests  →  Express (localhost:9000)  →  
 
 ## What I Built
 
-- A Signup form that creates a new user (first name, last name, username, password)
-- A Login form that checks a username and password against the database
-- A tab switch so the user can move between Login and Signup without a routing library
-- Messages in the interface that tell the user whether an action worked, so the browser console is never needed
-- A backend duplicate-username check so two users cannot share a username
+- A **Create project** form with a name, description, status (Planning, Active, or Completed), and a project lead picked from the registered users
+- A **project list** that shows each project's name, description, status, and the lead's full name and username
+- A **membership manager** where I select a project, see its members, add a registered user, and remove a member
+- The project lead is added to the project automatically and cannot be removed
+- A user can be in many projects, and a project can have many users, but the same user cannot be added to the same project twice
+- My PA2 Login and Signup still work the same way
 
 ## How I Set It Up
 
-**Frontend.** I created the React app with Vite (React, JavaScript) inside the `client` folder and ran it with `npm run dev`.
+I kept working in my PA2 repository instead of starting over, so all of my existing users are still available as project leads and members.
 
-**Backend.** I created a `server` folder, ran `npm init -y`, and installed `express`, `mongodb`, `cors`, and `dotenv`. I started with a small Express server and a test route at `/` to confirm it was running on port 9000.
+**Environment files.** `server/.env` holds `MONGO_URI`. I also added optional `MONGO_DB` (defaults to `pa2`) and `PORT` (defaults to `9000`). I added `server/.env.example` and `client/.env.example` so the setup is documented without committing my real credentials. `.gitignore` keeps `.env` and `node_modules` out of GitHub.
 
-**Database.** I created a free MongoDB Atlas cluster, made a database user, and added my IP address under Network Access. I copied the connection string into a `.env` file as `MONGO_URI` and loaded it with `dotenv` so my credentials are not written in my code. I confirmed the connection by printing "Connected to MongoDB" when the server starts.
+**Collection names.** The assignment asks for collections named `Users`, `Projects`, and `ProjectMemberships`. In PA2 my collection was called `users` in lowercase, and MongoDB collection names are case sensitive. So when the server starts it renames `users` to `Users` if `Users` does not exist yet. A rename keeps every user's `_id` and password, so nothing from PA2 is lost.
 
-**Git.** I added a `.gitignore` at the root so `node_modules` and `server/.env` are never committed.
+**Transactions.** When a project is created, the project and its lead's membership are saved in one transaction. Transactions need a replica set, which MongoDB Atlas is, so this works with my Atlas cluster but would not work on a plain standalone MongoDB.
+
+**Demo data.** I added `server/seed.js`. It adds three demo users and two demo projects for recording the video, and it can be run again without creating duplicates.
 
 ## Project Structure
 
 ```
-icsi418y-pa2/
+icsi418y-pa3/
 ├── .gitignore
 ├── README.md
 ├── client/
+│   ├── .env.example
 │   └── src/
 │       ├── components/
-│       │   ├── Login.jsx      Login form and request
-│       │   └── Signup.jsx     Signup form and request
-│       ├── App.jsx            Switches between Login and Signup
-│       ├── App.css / index.css
-│       └── main.jsx
+│       │   ├── Login.jsx        Login form (from PA2)
+│       │   ├── Signup.jsx       Signup form (from PA2)
+│       │   ├── Projects.jsx     Create project form, project list, selected project
+│       │   └── Memberships.jsx  Member list, add and remove
+│       ├── api.js               Shared request helper and user label
+│       ├── App.jsx              Tabs: Projects, Log in, Sign up
+│       └── App.css / index.css
 └── server/
-    ├── server.js              Express routes and MongoDB connection
-    └── .env                   Not committed
+    ├── .env.example
+    ├── server.js                Express routes and MongoDB connection
+    ├── seed.js                  Demo users and projects
+    └── test/                    Validation and integration tests
 ```
 
 ## How I Built the Frontend
 
-**Components.** I made `Signup.jsx` and `Login.jsx` as separate components and imported them into `App.jsx`. `App.jsx` keeps one piece of state, `activeTab`, and shows either form based on it.
+**Tabs and components.** `App.jsx` still switches between views with one piece of state, `activeTab`. I added a Projects tab next to Log in and Sign up. I kept Login and Signup as they were, and the only change is that they read the server address from `api.js`. I split the new work into two components: `Projects.jsx` for creating and listing projects, and `Memberships.jsx` for the members of whichever project is selected.
 
-**Form data.** Each input is connected to React state with `useState`, using `value` and `onChange`, so React always knows what the user typed. I also keep a `message` and a `status` in state so I can show green or red feedback.
+**Talking to the backend.** `api.js` has one `request()` function that sends JSON with `fetch`. If the response is not ok it throws an error with the server's message, and if the server cannot be reached it throws a "could not connect" message. That way every component just uses `try/catch` and shows the message in the page.
 
-**Sending requests.** In `handleSubmit` I call `event.preventDefault()` and use `fetch()` to POST the data as JSON to `http://localhost:9000/signup` or `/login`. I read the reply with `response.json()` and check `response.ok` to tell success from failure.
+**Dropdowns.** When `Projects.jsx` loads, it fetches the users and the projects together with `Promise.all`. The lead dropdown shows each person's name, but the value it submits is their database `_id`. The same idea is used for the "add a registered user" dropdown.
 
-**Handling errors.** I handle two different failures. If the server replies with an error, I show its message. If the server cannot be reached at all, `fetch` throws, and my `try/catch` shows "Could not connect to the server".
+**Showing the lead's name.** The backend sends each project with its lead's details already attached, so the project card can show the lead's name and username instead of an id.
 
-**Extra touches.** Inputs are trimmed before sending, the submit button is disabled while a request is running, and the fields are cleared after a successful signup or login.
+**Keeping the list correct.** After every add or remove, `Memberships.jsx` asks the server for the saved member list again instead of guessing what changed. The remove button for the lead is disabled, and the backend also refuses that request.
 
 ## How I Built the Backend
 
-The server uses `express.json()` so it can read JSON bodies and `cors()` so React can talk to it. After connecting, I select the `pa2` database and the `users` collection.
+**IDs.** Values from a form are strings, but MongoDB `_id` values are `ObjectId`s. My `objectId()` helper checks that a value is a valid 24 character hex string and converts it. A bad id returns a `400` instead of crashing the route.
 
-**`POST /signup`**
-1. Check that all required fields exist, otherwise return `400`.
-2. Use `findOne()` to look for an existing username. If one exists, return `409`.
-3. Use `insertOne()` to save the user and return `201`.
+**`POST /projects`.**
+1. Check that name, description, status, and project lead are all provided, otherwise `400`.
+2. Check that the status is Planning, Active, or Completed, otherwise `400`.
+3. Look up the selected lead in `Users`. If they do not exist, return `404`.
+4. In a transaction, insert the project and insert a membership for the lead, then return `201`.
 
-**`POST /login`**
-1. Check that the username and password exist, otherwise return `400`.
-2. Use `findOne()` to find the user.
-3. If the user is not found or the password does not match, return `401`. I use the same message for both cases so the response does not reveal which usernames exist.
-4. Otherwise return `200`.
+**Membership routes.** Each one first checks that the project exists and, where needed, that the user exists (`404` if not).
+- `GET /projects/:projectId/members` returns the memberships with each user's details and a flag for whether they are the lead.
+- `POST /projects/:projectId/members` inserts a membership. A unique index on `project_id` + `user_id` rejects duplicates, and the server turns that MongoDB duplicate key error into a `409` with a clear message. The index also protects against two requests arriving at the same moment.
+- `DELETE /projects/:projectId/members/:userId` returns `403` if that user is the project lead. Otherwise it deletes the membership, or returns `404` if the user was not a member.
 
-Both routes are wrapped in `try/catch`. If something goes wrong with the database, the server logs the real error and sends back only a generic `500` message, so internal details are never exposed to the frontend.
+**Names without copying them.** I use `$lookup` in an aggregation to join the memberships and projects to `Users` for display. The password field is removed from everything the server sends back.
 
-I also created a unique index on `username`. The `findOne()` check is the main duplicate protection, and the index acts as a second safeguard if two signups arrive at nearly the same moment.
+**Errors.** All the project routes go through one wrapper that catches errors and sends back JSON. Real database errors are logged on the server, and the browser only gets a generic message, the same way I did in PA2.
+
+## MongoDB Collections
+
+| Collection | Fields |
+| --- | --- |
+| `Users` | `_id`, `f_name`, `l_name`, `username`, `password` |
+| `Projects` | `_id`, `name`, `description`, `status`, `project_lead_id` |
+| `ProjectMemberships` | `_id`, `project_id`, `user_id` |
+
+`project_lead_id`, `project_id`, and `user_id` are all `ObjectId` references. I never store usernames or project names in a membership. One membership document means one user in one project, so a user in three projects has three membership documents.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | `/signup` | Create a user |
+| POST | `/login` | Check a username and password |
+| GET | `/users` | List users (no passwords) |
+| GET | `/projects` | List projects with their lead |
+| POST | `/projects` | Create a project and add its lead as a member |
+| GET | `/projects/:projectId/members` | List a project's members |
+| POST | `/projects/:projectId/members` | Add a member |
+| DELETE | `/projects/:projectId/members/:userId` | Remove a non-lead member |
 
 ## Status Codes I Used
 
 | Status | Used for |
 | --- | --- |
-| `200` | Login successful |
-| `201` | User created |
-| `400` | Missing required information |
+| `200` | Successful read, login, or member removal |
+| `201` | User, project, or membership created |
+| `400` | Missing or invalid input, or a bad id |
 | `401` | Invalid login credentials |
-| `409` | Username already exists |
+| `403` | Trying to remove the project lead |
+| `404` | Project, user, or membership not found |
+| `409` | Username already exists, or user already in the project |
 | `500` | Server or database error |
 
 ## How to Run It
 
-You need two terminals.
+You need two terminals, Node.js, and a MongoDB Atlas connection string.
 
 **Server**
 ```bash
 cd server
 npm install
+cp .env.example .env
 ```
-Create `server/.env` containing:
-```
-MONGO_URI=your_mongodb_connection_string
-```
-Then run:
+Put my connection string in `server/.env` as `MONGO_URI`, then run:
 ```bash
-node server.js
+npm start
 ```
 You should see `Connected to MongoDB` and `Server running on port 9000`.
 
@@ -112,20 +140,33 @@ npm run dev
 ```
 Open `http://localhost:5173`.
 
+**Optional demo data**
+```bash
+cd server
+npm run seed
+```
+This adds the users `pa3_alice`, `pa3_bob`, and `pa3_carol` (password `PA3demo123!`) and two demo projects.
+
 ## How I Tested It
 
-I tested after each step instead of building everything at once:
+I tested each feature as I added it, in the same order I built it:
 
-1. Signed up with a new user and saw the success message.
-2. Opened MongoDB Atlas (`pa2` → `users`) and confirmed the document was saved.
-3. Signed up with the same username and got "Username already exists".
-4. Logged in with the correct credentials and got a success message.
-5. Logged in with a wrong password and got "Invalid username or password".
-6. Submitted empty fields to check the validation messages.
-7. Stopped the server to confirm the frontend shows "Could not connect to the server".
+1. Signed up a new user and logged in, then tried a wrong password.
+2. Confirmed the lead dropdown listed my registered users.
+3. Created a project and checked the `Projects` collection in Atlas.
+4. Checked that the lead also appeared in `ProjectMemberships` and in the member list.
+5. Created a second project and confirmed both showed up with the lead's name.
+6. Added a user to a project, then added the same user to a second project.
+7. Tried to add the same user to the same project again and got the duplicate message.
+8. Removed a non-lead member and confirmed the list updated.
+9. Confirmed the lead's remove button is disabled and that the server rejects removing the lead.
+10. Looked at the three collections in Atlas to confirm the ids are `ObjectId` values.
+
+I also wrote tests for the server. `npm test` in `server` checks the validation rules without needing a database. `npm run test:integration` runs the whole flow against MongoDB using a temporary database that it deletes afterward.
 
 ## Notes
 
-- Passwords are stored as plain text because this assignment does not require hashing. In a real application I would hash them with something like `bcrypt`.
-- `cors()` is open to all origins, which is fine for local development only.
+- Passwords are still stored as plain text because the assignment does not ask for hashing. In a real project I would use `bcrypt`.
+- Login only shows a success or failure message, like in PA2. There are no sessions.
+- `cors()` is open to every origin, which is fine for local development only.
 - My `.env` file is not in the repository because it contains my database credentials.
