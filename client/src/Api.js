@@ -6,7 +6,7 @@ export const API_URL = "http://localhost:9000";
 //   ok   -> true when the HTTP status was 2xx
 //   data -> the parsed JSON body (errors look like { message: "..." })
 // If the server cannot be reached at all, ok is false and data.message
-// explains that, so components only need one code path for errors.
+// explains that, so components only need one code path for errors. 
 export async function request(path, options) {
   try {
     const response = await fetch(API_URL + path, options);
@@ -31,8 +31,7 @@ export function sendJson(path, method, body) {
   });
 }
 
-// MongoDB ids arrive in the browser as plain strings, so a user's name can
-// be looked up by comparing the strings directly.
+// MongoDB ids arrive in the browser as plain strings, so a user's name can be looked up by comparing the strings directly.
 export function findUsername(users, userId) {
   const user = users.find((u) => u._id === userId);
   return user ? user.username : "Unknown user";
